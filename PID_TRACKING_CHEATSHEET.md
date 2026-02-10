@@ -99,7 +99,9 @@ For each area rate type, check if the PID appears in the spatial analysis output
 
 ```sql
 -- Tax Designation
-SELECT * FROM SAP_ADM_TAX_DESIGNATION WHERE PID = 41019084;
+SELECT * FROM 
+SAP_ADM_TAX_DESIGNATION 
+WHERE PID = '41556465';
 
 -- BID
 SELECT * FROM SAP_bid 
@@ -565,5 +567,6 @@ SQL/
 
 **Created:** 2026-02-10
 **Purpose:** Debug PID filtering in Area Rates processing pipeline
+
 
 
