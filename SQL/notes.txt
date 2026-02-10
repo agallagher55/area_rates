@@ -1,0 +1,25 @@
+Script 1
+- Identify new table and reference table, copy & paste.
+
+Script 2
+- Add LTRIM(RTRIM(t.AAN))
+- Add SELECT INTO statement
+- Remove commit, add select * statement
+
+Script 3
+- SELECT INTO statement
+- Remove commit
+
+Script 4
+- Add LTRIM(RTRIM(t.AAN))
+- SELECT INTO statement
+- Remove commit
+- SELECT * statement
+
+Script 5
+- VARCHAR2 --> VARCHAR
+- Remove commit
+- SELECT * FROM AR_COM_NEW_FINAL_SAP;
+
+Script 6
+- remove commit

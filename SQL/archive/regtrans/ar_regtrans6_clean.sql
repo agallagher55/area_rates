@@ -1,0 +1,5 @@
+DROP TABLE SAP_regtrans;
+DROP TABLE AR_regtrans_pid_SAP;
+DROP TABLE AR_regtrans_AAN_SAP;
+DROP TABLE AR_regtrans_CONDO_in_SAP;
+DROP TABLE AR_regtrans_CONDO_AAN_SAP;
