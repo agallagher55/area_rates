@@ -61,7 +61,7 @@ Replace `41019084` with your PID of interest in all queries below.
 -- Check if PID exists in the master parcel layer
 SELECT pid, SHAPE.STArea() as area
 FROM LND_parcel_polygon
-WHERE pid = 41019084;
+WHERE pid = '41019084';
 ```
 
 **Expected Result:** 1 row
@@ -78,28 +78,39 @@ For each area rate type, check if the PID appears in the spatial analysis output
 SELECT * FROM SAP_ADM_TAX_DESIGNATION WHERE PID = 41019084;
 
 -- BID
-SELECT * FROM SAP_bid WHERE PID = 41019084;
+SELECT * FROM SAP_bid 
+WHERE PID = '41556465'
+;
 
 -- Transit
-SELECT * FROM SAP_TRANSIT WHERE PID = 41019084;
+SELECT * FROM SAP_TRANSIT 
+WHERE PID = '41556465'
+;
 
 -- Active Transit
-SELECT * FROM SAP_active_trans WHERE PID = 41019084;
+SELECT * FROM SAP_active_trans 
+WHERE PID = '41556465'
+;
 
 -- Fire Protection
-SELECT * FROM SAP_FIRE_PROTECTION WHERE PID = 41019084;
-
--- Commercial Facilities
-SELECT * FROM SAP_ComFacServ WHERE PID = 41019084;
+SELECT * FROM SAP_FIRE_PROTECTION 
+WHERE PID = '41556465'
+;
 
 -- Commercial
-SELECT * FROM SAP_commercial WHERE PID = 41019084;
+SELECT * FROM SAP_commercial 
+WHERE PID = '41556465'
+;
 
 -- Stormwater
-SELECT * FROM SAP_stormwater WHERE PID = 41019084;
+SELECT * FROM SAP_stormwater 
+WHERE PID = '41556465'
+;
 
 -- Private Road
-SELECT * FROM SAP_Priv_Road WHERE PID = 41019084;
+SELECT * FROM SAP_Priv_Road 
+WHERE PID = '41556465'
+;
 ```
 
 **Expected Result:** 1+ rows per area rate type
@@ -530,3 +541,4 @@ SQL/
 
 **Created:** 2026-02-10
 **Purpose:** Debug PID filtering in Area Rates processing pipeline
+
