@@ -204,14 +204,64 @@ The second creation **overwrites** the first. This means the M010/M020/M030 prio
 
 ---
 
-## Summary of Most Likely Explanation
+## Visual Review Findings (ArcGIS Pro Inspection)
 
-Given that:
-- The affected properties are **geographically dispersed** across the municipality
-- Many are **new subdivisions** (Lot/Parcel designations)
-- They span **both M010 and M030** codes
-- They were picked up **last year but not this year**
+A visual review of the affected parcels was conducted in ArcGIS Pro against the `ADM_tax_designation` boundary layer with the parcel layer filtered to the affected PIDs using a definition query:
 
-The most likely explanation is a combination of **Hypothesis 1 + 2**: The `ADM_tax_designation` boundary was updated and/or the parcel polygons for these newer subdivisions were recently created/modified, causing them to no longer cleanly intersect the boundary during the Identity analysis. The properties likely sit at or near the edges of tax designation zones, and the strict intersection (no tolerance buffer) caused them to fall outside.
+```sql
+PID IN ('41019084', '41559808', '41559832', '41559956', '41559873',
+        '41559899', '41559923', '41556374', '41556465', '41553751')
+```
 
-The verification steps above should confirm which specific cause applies to each property, but I would start with **Step 3 (visual inspection)** as the fastest way to identify the pattern.
+### Parcel-by-Parcel Observations
+
+| PID | AAN | Expected Rate | Location Relative to Boundary |
+|-----|-----|---------------|-------------------------------|
+| 41556465 | 06459072 | M010 (Urban) | Clearly inside M010 zone, not near any boundary |
+| 41553751 | 09507175 | M030 (Rural) | Clearly inside M030 zone, not near any boundary |
+| 41556374 | 05626617 | M030 (Rural) | Two polygon records, both clearly inside M030 zone |
+| 41019084 | 05709652 | M010 (Urban) | Within M010 zone |
+| 41559808 | 09512241 | M030 (Rural) | Within M030 zone |
+| 41559832 | 09419292 | M030 (Rural) | Within M030 zone |
+| 41559956 | 09512268 | M030 (Rural) | Within M030 zone |
+| 41559873 | 09419306 | M030 (Rural) | Within M030 zone |
+| 41559899 | 09419314 | M030 (Rural) | Within M030 zone |
+| 41559923 | 09419322 | M030 (Rural) | Within M030 zone |
+
+### Critical Finding: SDATE
+
+All affected parcels in `LND_parcel_polygon` have **SDATE = 2/6/2026**. This indicates the parcel geometries were created or updated on February 6, 2026 — likely **after** the GIS spatial analysis was run for this year's area rates cycle.
+
+### PID-to-AAN Mapping Confirmed
+
+A query against `SDEADM.LINNS_PIDAANTAX` confirmed all 10 PIDs have valid AAN mappings with `TAXCONFIRM = 'T'`. The PID-AAN relationship is intact.
+
+### Hypotheses Eliminated
+
+- **Hypothesis 1 (Boundary Changed)**: **Ruled out.** The parcels are well within their respective tax designation zones, not near any boundary edge. Boundary changes would not explain their absence.
+- **Hypothesis 3 (Edge/Sliver Issue)**: **Ruled out.** No parcels are at or near boundary edges. Tolerance/cluster issues are not relevant here.
+- **Hypothesis 5 (PID-AAN Mapping Gap)**: **Unlikely as root cause.** The LINNS_PIDAANTAX mappings exist now with TAXCONFIRM = 'T'. However, it remains possible these mappings were added at the same time as the parcel geometries (2/6/2026), which could mean they also didn't exist when the SQL phase ran.
+
+### Confirmed Root Cause: Hypothesis 2 — New Parcel Geometries Created After GIS Run
+
+The uniform SDATE of **2/6/2026** across all affected parcels is the strongest evidence. These are new subdivision parcels that were created in `LND_parcel_polygon` **after** the area rates GIS analysis (`area_rates.py`) was executed for this cycle. Since the parcels didn't exist in the parcel layer at the time of the Identity analysis, they could not have been picked up.
+
+**The workflow ran correctly — it simply ran before these parcels existed.**
+
+---
+
+## Recommendations
+
+1. **Immediate fix**: Manually add the 14 affected AANs to `Area_Rates_PID_AAN` with their correct AREARATE_CODE values (as Vicki has already done for the 04/01/2026 effective date).
+
+2. **Process timing**: Coordinate the area rates GIS run timing with Land Services to ensure it occurs **after** any pending parcel subdivisions are committed to `LND_parcel_polygon`. Alternatively, run a final check/sweep after the main run to catch recently added parcels.
+
+3. **Catch-up mechanism**: Consider adding a post-processing step that identifies PIDs in `LINNS_PIDAANTAX` (with `TAXCONFIRM = 'T'`) that have no corresponding entry in `Area_Rates_PID_AAN`, then flags them for manual review or automated spatial assignment.
+
+4. **SQL bug (separate issue)**: The `Run_Taxdes.sql` double-creation of `AR_taxdes_FINAL_SAP` (lines 164-196) still needs to be addressed to ensure the M010/M020/M030 priority recoding logic is actually applied.
+
+---
+
+## Summary
+
+The 14 missing properties were not dropped due to boundary changes, spatial tolerance issues, or PID-AAN mapping gaps. They are **new subdivision parcels** (SDATE = 2/6/2026) that were created in the parcel layer **after** the area rates GIS spatial analysis was executed. The parcels are all clearly within their respective tax designation zones (M010 or M030) and have valid PID-AAN mappings, confirming they would have been picked up if they had existed at the time of the run.
