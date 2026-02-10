@@ -62,6 +62,30 @@ Replace `41019084` with your PID of interest in all queries below.
 SELECT pid, SHAPE.STArea() as area
 FROM LND_parcel_polygon
 WHERE pid = '41019084';
+
+SELECT pid, SHAPE.STArea() as area
+FROM LND_parcel_polygon
+WHERE PID IN (
+    SELECT PID
+    FROM SDEADM.LINNS_PIDAANTAX
+    WHERE AAN IN (
+        '05626617',
+        '05709652',
+        '06459072',
+        '08986320',
+        '08986339',
+        '09419292',
+        '09419306',
+        '09419314',
+        '09419322',
+        '09507175',
+        '09512241',
+        '09512268',
+        '09736603',
+        '10257492'
+    )
+)
+;
 ```
 
 **Expected Result:** 1 row
@@ -541,4 +565,5 @@ SQL/
 
 **Created:** 2026-02-10
 **Purpose:** Debug PID filtering in Area Rates processing pipeline
+
 
