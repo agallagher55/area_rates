@@ -23,8 +23,8 @@ AAN (Account Number)
     ↓ [LINNS_PIDAANTAX]
 PID (Parcel ID)
     ↓ [LINNS_PIDRELATE - check relationship]
-    ├─ CONDO UNIT PARCEL → Use PIDRELATE (parent)
-    ├─ INFANT PARCEL → Use PIDRELATE (parent)
+    ├─ CONDO UNIT PARCEL → Use PIDRELATE if in fabric, else fall back to PID
+    ├─ INFANT PARCEL → Use PIDRELATE if in fabric, else fall back to PID
     └─ Regular/NULL → Use PID directly
     ↓
 Parcel Fabric PID
@@ -70,17 +70,20 @@ WHERE pt.AAN IN ('05626617', '05709652', '06459072', ...);
 ### 3. Determine Correct PID for Parcel Fabric Lookup
 
 ```sql
+-- Uses parent PID only if it exists in the fabric; falls back to original PID
 SELECT
     pt.AAN,
     pt.PID AS Original_PID,
     CASE
         WHEN pr.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
-            THEN pr.PIDRELATE  -- Use parent
-        ELSE pt.PID             -- Use original
+            AND lpp_parent.pid IS NOT NULL
+            THEN pr.PIDRELATE  -- Use parent (confirmed in fabric)
+        ELSE pt.PID             -- Use original (fallback or regular parcel)
     END AS Parcel_Fabric_PID,
     pr.RELNAME
 FROM SDEADM.LINNS_PIDAANTAX pt
 LEFT JOIN SDEADM.LINNS_PIDRELATE pr ON pt.PID = pr.PID
+LEFT JOIN SDEADM.LND_parcel_polygon lpp_parent ON pr.PIDRELATE = lpp_parent.pid
 WHERE pt.AAN IN ('05626617', '05709652', '06459072', ...);
 ```
 
@@ -95,11 +98,13 @@ WITH PID_Lookup AS (
         pt.PID AS Original_PID,
         CASE
             WHEN pr.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pr.PIDRELATE
             ELSE pt.PID
         END AS Parcel_Fabric_PID
     FROM SDEADM.LINNS_PIDAANTAX pt
     LEFT JOIN SDEADM.LINNS_PIDRELATE pr ON pt.PID = pr.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon lpp_parent ON pr.PIDRELATE = lpp_parent.pid
     WHERE pt.AAN IN ('05626617', '05709652', '06459072', ...)
 )
 SELECT
@@ -125,11 +130,13 @@ WITH PID_Lookup AS (
         pt.AAN,
         CASE
             WHEN pr.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pr.PIDRELATE
             ELSE pt.PID
         END AS Parcel_Fabric_PID
     FROM SDEADM.LINNS_PIDAANTAX pt
     LEFT JOIN SDEADM.LINNS_PIDRELATE pr ON pt.PID = pr.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon lpp_parent ON pr.PIDRELATE = lpp_parent.pid
     WHERE pt.AAN IN ('05626617', '05709652', '06459072', ...)
 )
 SELECT pl.AAN, pl.Parcel_Fabric_PID, 'MISSING' AS Status
@@ -196,12 +203,12 @@ WHERE pid = 41554015;  -- Use COMMON PARCEL PID, not unit PID
 
 ## Summary Logic Table
 
-| Relationship Type | PID to Use in LND_parcel_polygon | Example |
-|-------------------|----------------------------------|---------|
-| `CONDO UNIT PARCEL` | PIDRELATE (parent/common parcel) | 41554015 |
-| `INFANT PARCEL` | PIDRELATE (parent parcel) | 40194946 |
-| `CONDO COMMON PARCEL` | PID (this is the parent) | Direct lookup |
-| `NULL` (regular) | PID (direct lookup) | Direct lookup |
+| Relationship Type | PID to Use in LND_parcel_polygon | Fallback |
+|-------------------|----------------------------------|----------|
+| `CONDO UNIT PARCEL` | PIDRELATE (if in fabric) | Original PID |
+| `INFANT PARCEL` | PIDRELATE (if in fabric) | Original PID |
+| `CONDO COMMON PARCEL` | PID (this is the parent) | N/A |
+| `NULL` (regular) | PID (direct lookup) | N/A |
 
 ---
 
