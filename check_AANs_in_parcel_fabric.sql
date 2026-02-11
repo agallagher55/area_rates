@@ -29,7 +29,7 @@ PRINT '=========================================================================
 SELECT
     pid_tax.AAN,
     pid_tax.PID,
-    pid_tax.TAXNO,
+    pid_tax.TAXCONFIRM,
     'Direct PID from AAN lookup' AS Source
 FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
 WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
