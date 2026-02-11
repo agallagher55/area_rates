@@ -18,6 +18,8 @@ This is a transient issue — once the Province updates the parcel fabric to ref
 - The current parcel fabric, updated in February, for the parcels of interest, are in dotted black lines.
 - The parcel fabric, as it looked in January, is in red.
 - The LINNS PID-AAN lookup table from December is on the left and from January is on the right.
+
+<img width="1437" height="689" alt="image" src="https://github.com/user-attachments/assets/5f26381e-d1c1-47d1-be4b-e2857fd33065" />
 <img width="745" height="547" alt="image" src="https://github.com/user-attachments/assets/dd102898-4530-4c2f-9801-f93025c08644" />
 
 ## 2. Overlapping Area Rate Boundary Polygons
@@ -25,4 +27,5 @@ This is a transient issue — once the Province updates the parcel fabric to ref
 One of the area rate boundary feature classes likely contains overlapping polygons. When a parcel falls within an overlap, the spatial overlay (Identity) assigns multiple area rate codes to the same PID. The SQL then selects only one of the rate codes (the record with the largest overlap area), which means the other valid rate code is silently dropped.
 
 This can result in a property being assigned to the wrong area rate or missing from a rate it should belong to.
+
 
