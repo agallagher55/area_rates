@@ -349,6 +349,154 @@ ORDER BY PIDs_Missing DESC, pl.AAN;
 
 PRINT '';
 PRINT '============================================================================';
+PRINT 'STEP 10: DUPLICATE PID DETECTION - Data Quality Issues';
+PRINT '============================================================================';
+
+-- First, identify all PIDs (both original and parent) that we care about
+WITH All_PIDs_To_Check AS (
+    SELECT DISTINCT
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS PID_To_Check,
+        pid_tax.AAN
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+),
+-- Count how many times each PID appears in LND_parcel_polygon
+PID_Counts AS (
+    SELECT
+        lpp.pid,
+        COUNT(*) AS Occurrences,
+        SUM(lpp.SHAPE.STArea()) AS Total_Area,
+        MIN(lpp.SHAPE.STArea()) AS Min_Area,
+        MAX(lpp.SHAPE.STArea()) AS Max_Area,
+        MIN(lpp.OBJECTID) AS First_ObjectID,
+        MAX(lpp.OBJECTID) AS Last_ObjectID
+    FROM SDEADM.LND_parcel_polygon lpp
+    WHERE lpp.pid IN (SELECT PID_To_Check FROM All_PIDs_To_Check)
+    GROUP BY lpp.pid
+    HAVING COUNT(*) > 1  -- Only show duplicates
+)
+SELECT
+    pc.pid AS Duplicate_PID,
+    pc.Occurrences AS Times_In_Parcel_Fabric,
+    STRING_AGG(atc.AAN, ', ') AS Associated_AANs,
+    CAST(ROUND(pc.Total_Area, 2) AS VARCHAR) + ' sq ft' AS Combined_Area,
+    CAST(ROUND(pc.Min_Area, 2) AS VARCHAR) + ' sq ft' AS Smallest_Polygon,
+    CAST(ROUND(pc.Max_Area, 2) AS VARCHAR) + ' sq ft' AS Largest_Polygon,
+    pc.First_ObjectID,
+    pc.Last_ObjectID,
+    '⚠ WARNING: Duplicate geometry records' AS Issue,
+    CASE
+        WHEN ABS(pc.Max_Area - pc.Min_Area) < 1.0 THEN 'Same size - likely true duplicate'
+        ELSE 'Different sizes - may be overlapping/split parcels'
+    END AS Duplicate_Type
+FROM PID_Counts pc
+LEFT JOIN All_PIDs_To_Check atc ON pc.pid = atc.PID_To_Check
+GROUP BY pc.pid, pc.Occurrences, pc.Total_Area, pc.Min_Area, pc.Max_Area,
+         pc.First_ObjectID, pc.Last_ObjectID
+ORDER BY pc.Occurrences DESC, pc.pid;
+
+PRINT '';
+PRINT '============================================================================';
+PRINT 'STEP 11: DUPLICATE DETAILS - Show All Records for Duplicates';
+PRINT '============================================================================';
+
+WITH All_PIDs_To_Check AS (
+    SELECT DISTINCT
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS PID_To_Check
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+),
+Duplicate_PIDs AS (
+    SELECT lpp.pid
+    FROM SDEADM.LND_parcel_polygon lpp
+    WHERE lpp.pid IN (SELECT PID_To_Check FROM All_PIDs_To_Check)
+    GROUP BY lpp.pid
+    HAVING COUNT(*) > 1
+)
+SELECT
+    lpp.pid AS PID,
+    lpp.OBJECTID,
+    CAST(ROUND(lpp.SHAPE.STArea(), 2) AS VARCHAR) + ' sq ft' AS Area,
+    lpp.SHAPE.STIsValid() AS Geometry_Valid,
+    CAST(ROUND(lpp.SHAPE.STLength(), 2) AS VARCHAR) + ' ft' AS Perimeter,
+    lpp.SHAPE.STNumGeometries() AS Num_Geometries,
+    'Review - Multiple records for same PID' AS Action_Needed
+FROM SDEADM.LND_parcel_polygon lpp
+WHERE lpp.pid IN (SELECT pid FROM Duplicate_PIDs)
+ORDER BY lpp.pid, lpp.OBJECTID;
+
+PRINT '';
+PRINT '============================================================================';
+PRINT 'STEP 12: DATA QUALITY SUMMARY';
+PRINT '============================================================================';
+
+WITH All_PIDs_To_Check AS (
+    SELECT DISTINCT
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS PID_To_Check
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+),
+PID_Status AS (
+    SELECT
+        atc.PID_To_Check,
+        COUNT(lpp.OBJECTID) AS Record_Count
+    FROM All_PIDs_To_Check atc
+    LEFT JOIN SDEADM.LND_parcel_polygon lpp ON atc.PID_To_Check = lpp.pid
+    GROUP BY atc.PID_To_Check
+)
+SELECT
+    'Total Unique PIDs to Check' AS Metric,
+    CAST(COUNT(*) AS VARCHAR) AS Count
+FROM All_PIDs_To_Check
+
+UNION ALL
+
+SELECT
+    'PIDs Found in Parcel Fabric',
+    CAST(SUM(CASE WHEN Record_Count > 0 THEN 1 ELSE 0 END) AS VARCHAR)
+FROM PID_Status
+
+UNION ALL
+
+SELECT
+    'PIDs Missing from Parcel Fabric',
+    CAST(SUM(CASE WHEN Record_Count = 0 THEN 1 ELSE 0 END) AS VARCHAR)
+FROM PID_Status
+
+UNION ALL
+
+SELECT
+    'PIDs with Duplicate Records (⚠ Issue)',
+    CAST(SUM(CASE WHEN Record_Count > 1 THEN 1 ELSE 0 END) AS VARCHAR)
+FROM PID_Status
+
+UNION ALL
+
+SELECT
+    'PIDs with Exactly 1 Record (✓ Good)',
+    CAST(SUM(CASE WHEN Record_Count = 1 THEN 1 ELSE 0 END) AS VARCHAR)
+FROM PID_Status;
+
+PRINT '';
+PRINT '============================================================================';
 PRINT 'KEY INSIGHTS:';
 PRINT '- CONDO UNIT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
 PRINT '- INFANT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
@@ -356,4 +504,7 @@ PRINT '- Regular PIDs are looked up directly';
 PRINT '- Step 7 shows detailed status for each AAN';
 PRINT '- Step 8 shows PIDs NOT FOUND in LND_parcel_polygon';
 PRINT '- Step 9 shows aggregate summary by AAN';
+PRINT '- Step 10 identifies DUPLICATE PIDs in parcel fabric (⚠ Data Quality Issue)';
+PRINT '- Step 11 shows all records for duplicate PIDs';
+PRINT '- Step 12 provides overall data quality summary';
 PRINT '============================================================================';
