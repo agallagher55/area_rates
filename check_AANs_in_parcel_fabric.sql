@@ -199,9 +199,161 @@ ORDER BY pl.AAN, pl.Original_PID;
 
 PRINT '';
 PRINT '============================================================================';
+PRINT 'STEP 7: FINAL SUMMARY REPORT - Complete Status for Each AAN';
+PRINT '============================================================================';
+
+WITH PID_Lookup AS (
+    SELECT
+        pid_tax.AAN,
+        pid_tax.PID AS Original_PID,
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS Parcel_Fabric_PID,
+        pid_relate.RELNAME AS Relationship_Type,
+        pid_relate.PIDRELATE AS Parent_PID
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+)
+SELECT
+    pl.AAN,
+    pl.Original_PID,
+    -- Is it a condo?
+    CASE
+        WHEN pl.Relationship_Type LIKE '%CONDO%' THEN 'YES - Condo'
+        WHEN pl.Relationship_Type = 'INFANT PARCEL' THEN 'NO - Infant Parcel'
+        WHEN pl.Relationship_Type IS NULL THEN 'NO - Regular Parcel'
+        ELSE 'NO - ' + pl.Relationship_Type
+    END AS Is_Condo,
+    -- What type of parcel relationship?
+    ISNULL(pl.Relationship_Type, 'Regular Parcel (No Relationship)') AS Parcel_Type,
+    -- Where was the PID taken from?
+    CASE
+        WHEN pl.Parent_PID IS NOT NULL THEN 'Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
+        ELSE 'Direct (Original PID)'
+    END AS PID_Source,
+    -- Which PID was used for lookup?
+    pl.Parcel_Fabric_PID AS Lookup_PID,
+    -- Is it in the parcel fabric?
+    CASE
+        WHEN lpp.pid IS NOT NULL THEN '✓ YES - Found in Parcel Fabric'
+        ELSE '✗ NO - NOT Found'
+    END AS In_Parcel_Fabric,
+    -- Parcel area if found
+    CASE
+        WHEN lpp.pid IS NOT NULL THEN CAST(ROUND(lpp.SHAPE.STArea(), 2) AS VARCHAR) + ' sq ft'
+        ELSE 'N/A (Not Found)'
+    END AS Parcel_Area,
+    -- Overall status
+    CASE
+        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NOT NULL THEN 'OK - Found via Parent'
+        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NULL THEN 'OK - Found Direct'
+        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NOT NULL THEN 'MISSING - Parent Not in Fabric'
+        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NULL THEN 'MISSING - Not in Fabric'
+        ELSE 'Unknown'
+    END AS Status_Summary
+FROM PID_Lookup pl
+LEFT JOIN SDEADM.LND_parcel_polygon lpp
+    ON pl.Parcel_Fabric_PID = lpp.pid
+ORDER BY
+    CASE WHEN lpp.pid IS NULL THEN 0 ELSE 1 END,  -- Missing ones first
+    pl.AAN,
+    pl.Original_PID;
+
+PRINT '';
+PRINT '============================================================================';
+PRINT 'STEP 8: NOT FOUND ANYWHERE - Critical Missing PIDs';
+PRINT '============================================================================';
+
+WITH PID_Lookup AS (
+    SELECT
+        pid_tax.AAN,
+        pid_tax.PID AS Original_PID,
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS Parcel_Fabric_PID,
+        pid_relate.RELNAME AS Relationship_Type,
+        pid_relate.PIDRELATE AS Parent_PID
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+)
+SELECT
+    pl.AAN,
+    pl.Original_PID,
+    pl.Parcel_Fabric_PID AS Missing_PID,
+    ISNULL(pl.Relationship_Type, 'Regular Parcel') AS Parcel_Type,
+    CASE
+        WHEN pl.Parent_PID IS NOT NULL THEN 'Missing Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
+        ELSE 'Missing Original PID: ' + CAST(pl.Original_PID AS VARCHAR)
+    END AS What_Is_Missing,
+    'NOT FOUND in LND_parcel_polygon' AS Issue,
+    CASE
+        WHEN pl.Relationship_Type LIKE '%CONDO%' THEN 'Check if common parcel was created after GIS run'
+        WHEN pl.Relationship_Type = 'INFANT PARCEL' THEN 'Check if parent parcel was created after GIS run'
+        ELSE 'Check if parcel exists in system or needs to be added'
+    END AS Recommended_Action
+FROM PID_Lookup pl
+LEFT JOIN SDEADM.LND_parcel_polygon lpp
+    ON pl.Parcel_Fabric_PID = lpp.pid
+WHERE lpp.pid IS NULL
+ORDER BY pl.AAN, pl.Original_PID;
+
+PRINT '';
+PRINT '============================================================================';
+PRINT 'STEP 9: AGGREGATE SUMMARY BY AAN';
+PRINT '============================================================================';
+
+WITH PID_Lookup AS (
+    SELECT
+        pid_tax.AAN,
+        pid_tax.PID AS Original_PID,
+        CASE
+            WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                THEN pid_relate.PIDRELATE
+            ELSE pid_tax.PID
+        END AS Parcel_Fabric_PID,
+        pid_relate.RELNAME AS Relationship_Type
+    FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
+    LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
+        ON pid_tax.PID = pid_relate.PID
+    WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
+)
+SELECT
+    pl.AAN,
+    COUNT(DISTINCT pl.Original_PID) AS Total_PIDs,
+    MAX(CASE WHEN pl.Relationship_Type LIKE '%CONDO%' THEN 'Condo'
+             WHEN pl.Relationship_Type = 'INFANT PARCEL' THEN 'Infant'
+             ELSE 'Regular' END) AS Type,
+    SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) AS PIDs_Found,
+    SUM(CASE WHEN lpp.pid IS NULL THEN 1 ELSE 0 END) AS PIDs_Missing,
+    CASE
+        WHEN SUM(CASE WHEN lpp.pid IS NULL THEN 1 ELSE 0 END) = 0 THEN '✓ All Found'
+        WHEN SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN '✗ None Found'
+        ELSE '⚠ Partially Found'
+    END AS Overall_Status,
+    CAST(ROUND(
+        100.0 * SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*),
+        1) AS VARCHAR) + '%' AS Percent_Found
+FROM PID_Lookup pl
+LEFT JOIN SDEADM.LND_parcel_polygon lpp
+    ON pl.Parcel_Fabric_PID = lpp.pid
+GROUP BY pl.AAN
+ORDER BY PIDs_Missing DESC, pl.AAN;
+
+PRINT '';
+PRINT '============================================================================';
 PRINT 'KEY INSIGHTS:';
 PRINT '- CONDO UNIT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
 PRINT '- INFANT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
 PRINT '- Regular PIDs are looked up directly';
-PRINT '- Step 6 shows which PIDs are MISSING from LND_parcel_polygon';
+PRINT '- Step 7 shows detailed status for each AAN';
+PRINT '- Step 8 shows PIDs NOT FOUND in LND_parcel_polygon';
+PRINT '- Step 9 shows aggregate summary by AAN';
 PRINT '============================================================================';
