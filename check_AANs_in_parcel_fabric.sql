@@ -64,21 +64,26 @@ PRINT 'STEP 3: Determine which PID to lookup in parcel fabric';
 PRINT '============================================================================';
 
 -- Create a lookup that uses the correct PID for parcel fabric checks
+-- Uses parent PID when it exists in fabric, otherwise falls back to original PID
 WITH PID_Lookup AS (
     SELECT
         pid_tax.AAN,
         pid_tax.PID AS Original_PID,
         CASE
-            -- For condo units and infant parcels, use the parent PID
+            -- For condo units and infant parcels, use parent PID only if it exists in fabric
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
-            -- For everything else (including NULL relationships), use the original PID
+            -- Otherwise use the original PID (covers regular parcels, NULL relationships,
+            -- and cases where the parent PID is missing from the fabric)
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
         pid_relate.RELNAME AS Relationship_Type
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -104,6 +109,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -111,6 +117,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -140,6 +148,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -147,6 +156,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -176,6 +187,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -183,6 +195,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -208,6 +222,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -216,6 +231,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -232,15 +249,18 @@ SELECT
     ISNULL(pl.Relationship_Type, 'Regular Parcel (No Relationship)') AS Parcel_Type,
     -- Where was the PID taken from?
     CASE
-        WHEN pl.Parent_PID IS NOT NULL THEN 'Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
+        WHEN pl.Parent_PID IS NOT NULL AND pl.Parcel_Fabric_PID = pl.Parent_PID
+            THEN 'Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
+        WHEN pl.Parent_PID IS NOT NULL AND pl.Parcel_Fabric_PID = pl.Original_PID
+            THEN 'Original PID (parent not in fabric)'
         ELSE 'Direct (Original PID)'
     END AS PID_Source,
     -- Which PID was used for lookup?
     pl.Parcel_Fabric_PID AS Lookup_PID,
     -- Is it in the parcel fabric?
     CASE
-        WHEN lpp.pid IS NOT NULL THEN '✓ YES - Found in Parcel Fabric'
-        ELSE '✗ NO - NOT Found'
+        WHEN lpp.pid IS NOT NULL THEN 'YES - Found in Parcel Fabric'
+        ELSE 'NO - NOT Found'
     END AS In_Parcel_Fabric,
     -- Parcel area if found
     CASE
@@ -249,10 +269,16 @@ SELECT
     END AS Parcel_Area,
     -- Overall status
     CASE
-        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NOT NULL THEN 'OK - Found via Parent'
-        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NULL THEN 'OK - Found Direct'
-        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NOT NULL THEN 'MISSING - Parent Not in Fabric'
-        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NULL THEN 'MISSING - Not in Fabric'
+        WHEN lpp.pid IS NOT NULL AND pl.Parcel_Fabric_PID = pl.Parent_PID
+            THEN 'OK - Found via Parent'
+        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NOT NULL AND pl.Parcel_Fabric_PID = pl.Original_PID
+            THEN 'OK - Found via Original (parent missing from fabric)'
+        WHEN lpp.pid IS NOT NULL AND pl.Parent_PID IS NULL
+            THEN 'OK - Found Direct'
+        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NOT NULL
+            THEN 'MISSING - Neither Parent nor Original in Fabric'
+        WHEN lpp.pid IS NULL AND pl.Parent_PID IS NULL
+            THEN 'MISSING - Not in Fabric'
         ELSE 'Unknown'
     END AS Status_Summary
 FROM PID_Lookup pl
@@ -274,6 +300,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -282,6 +309,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -290,7 +319,10 @@ SELECT
     pl.Parcel_Fabric_PID AS Missing_PID,
     ISNULL(pl.Relationship_Type, 'Regular Parcel') AS Parcel_Type,
     CASE
-        WHEN pl.Parent_PID IS NOT NULL THEN 'Missing Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
+        WHEN pl.Parent_PID IS NOT NULL AND pl.Parcel_Fabric_PID = pl.Original_PID
+            THEN 'Parent PID ' + CAST(pl.Parent_PID AS VARCHAR) + ' not in fabric, original PID also missing'
+        WHEN pl.Parent_PID IS NOT NULL
+            THEN 'Missing Parent PID: ' + CAST(pl.Parent_PID AS VARCHAR)
         ELSE 'Missing Original PID: ' + CAST(pl.Original_PID AS VARCHAR)
     END AS What_Is_Missing,
     'NOT FOUND in LND_parcel_polygon' AS Issue,
@@ -316,6 +348,7 @@ WITH PID_Lookup AS (
         pid_tax.PID AS Original_PID,
         CASE
             WHEN pid_relate.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+                AND lpp_parent.pid IS NOT NULL
                 THEN pid_relate.PIDRELATE
             ELSE pid_tax.PID
         END AS Parcel_Fabric_PID,
@@ -323,6 +356,8 @@ WITH PID_Lookup AS (
     FROM SDEADM.LINNS_PIDAANTAX AS pid_tax
     LEFT JOIN SDEADM.LINNS_PIDRELATE AS pid_relate
         ON pid_tax.PID = pid_relate.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon AS lpp_parent
+        ON pid_relate.PIDRELATE = lpp_parent.pid
     WHERE pid_tax.AAN IN (SELECT AAN FROM @AANs)
 )
 SELECT
@@ -334,9 +369,9 @@ SELECT
     SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) AS PIDs_Found,
     SUM(CASE WHEN lpp.pid IS NULL THEN 1 ELSE 0 END) AS PIDs_Missing,
     CASE
-        WHEN SUM(CASE WHEN lpp.pid IS NULL THEN 1 ELSE 0 END) = 0 THEN '✓ All Found'
-        WHEN SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN '✗ None Found'
-        ELSE '⚠ Partially Found'
+        WHEN SUM(CASE WHEN lpp.pid IS NULL THEN 1 ELSE 0 END) = 0 THEN 'All Found'
+        WHEN SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) = 0 THEN 'None Found'
+        ELSE 'Partially Found'
     END AS Overall_Status,
     CAST(ROUND(
         100.0 * SUM(CASE WHEN lpp.pid IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*),
@@ -352,6 +387,7 @@ PRINT '=========================================================================
 PRINT 'KEY INSIGHTS:';
 PRINT '- CONDO UNIT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
 PRINT '- INFANT PARCELs use the parent PID (PIDRELATE) for parcel fabric lookup';
+PRINT '- If the parent PID is NOT in the fabric, falls back to the original PID';
 PRINT '- Regular PIDs are looked up directly';
 PRINT '- Step 7 shows detailed status for each AAN';
 PRINT '- Step 8 shows PIDs NOT FOUND in LND_parcel_polygon';

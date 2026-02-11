@@ -42,9 +42,14 @@
          │                   │                   │
          ▼                   ▼                   ▼
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ Use PIDRELATE   │ │ Use PIDRELATE   │ │ Use PID         │
-│ (parent/common  │ │ (parent parcel) │ │ (direct lookup) │
-│  parcel)        │ │                 │ │                 │
+│ Is PIDRELATE in │ │ Is PIDRELATE in │ │ Use PID         │
+│ LND_parcel_     │ │ LND_parcel_     │ │ (direct lookup) │
+│ polygon?        │ │ polygon?        │ │                 │
+│                 │ │                 │ │                 │
+│ YES → Use       │ │ YES → Use       │ │                 │
+│   PIDRELATE     │ │   PIDRELATE     │ │                 │
+│ NO → Fall back  │ │ NO → Fall back  │ │                 │
+│   to PID        │ │   to PID        │ │                 │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
          │                   │                   │
          └───────────────────┼───────────────────┘
@@ -79,12 +84,16 @@ AAN (e.g., 05626617)
                     └─ YES → What is RELNAME?        │
                             │                        │
                             ├─ CONDO UNIT PARCEL     │
-                            │  Use PIDRELATE          │
-                            │  (e.g., 41554015) ──────┤
+                            │  Is PIDRELATE in       │
+                            │  LND_parcel_polygon?   │
+                            │  YES → Use PIDRELATE ──┤
+                            │  NO  → Use PID ────────┤
                             │                         │
                             ├─ INFANT PARCEL          │
-                            │  Use PIDRELATE          │
-                            │  (e.g., 40194946) ──────┤
+                            │  Is PIDRELATE in       │
+                            │  LND_parcel_polygon?   │
+                            │  YES → Use PIDRELATE ──┤
+                            │  NO  → Use PID ────────┤
                             │                         │
                             └─ CONDO COMMON PARCEL    │
                                Use PID directly ──────┤
@@ -178,13 +187,16 @@ WITH PID_Lookup AS (
         pr.RELNAME AS Relationship,
         pr.PIDRELATE AS Parent_PID,
         -- Step 2: Determine which PID to use for fabric lookup
+        -- Use parent PID only if it exists in the fabric; otherwise fall back to original
         CASE
             WHEN pr.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
-                THEN pr.PIDRELATE  -- Use parent
-            ELSE pt.PID             -- Use original
+                AND lpp_parent.pid IS NOT NULL
+                THEN pr.PIDRELATE  -- Use parent (confirmed in fabric)
+            ELSE pt.PID             -- Use original (fallback or regular parcel)
         END AS Parcel_Fabric_PID
     FROM SDEADM.LINNS_PIDAANTAX pt
     LEFT JOIN SDEADM.LINNS_PIDRELATE pr ON pt.PID = pr.PID
+    LEFT JOIN SDEADM.LND_parcel_polygon lpp_parent ON pr.PIDRELATE = lpp_parent.pid
     WHERE pt.AAN = '05626617'  -- Replace with your AAN
 )
 -- Step 3: Check if in parcel fabric
@@ -251,13 +263,13 @@ AAN 09512241 might have:
 
 ## Summary Table: Which PID to Use
 
-| RELNAME (from LINNS_PIDRELATE) | PID to Use in LND_parcel_polygon | Column Name |
-|-------------------------------|----------------------------------|-------------|
-| `CONDO UNIT PARCEL` | PIDRELATE | Parent/Common Parcel |
-| `INFANT PARCEL` | PIDRELATE | Parent Parcel |
-| `CONDO COMMON PARCEL` | PID | This IS the parent |
-| `NULL` (no relationship) | PID | Direct lookup |
-| Any other value | PID | Direct lookup (default) |
+| RELNAME (from LINNS_PIDRELATE) | PID to Use in LND_parcel_polygon | Fallback |
+|-------------------------------|----------------------------------|----------|
+| `CONDO UNIT PARCEL` | PIDRELATE (if in fabric) | Original PID |
+| `INFANT PARCEL` | PIDRELATE (if in fabric) | Original PID |
+| `CONDO COMMON PARCEL` | PID | N/A |
+| `NULL` (no relationship) | PID | N/A |
+| Any other value | PID | N/A |
 
 ---
 
@@ -281,15 +293,17 @@ SELECT RELNAME, PIDRELATE FROM LINNS_PIDRELATE WHERE PID = xxxxxxxx;
 -- 3. Check in parcel fabric
 SELECT * FROM LND_parcel_polygon WHERE pid = xxxxxxxx;
 
--- 4. All-in-one (using CASE logic)
+-- 4. All-in-one (using CASE logic with fallback)
 SELECT
     CASE
         WHEN pr.RELNAME IN ('CONDO UNIT PARCEL', 'INFANT PARCEL')
+            AND lpp_parent.pid IS NOT NULL
             THEN pr.PIDRELATE
         ELSE pt.PID
     END AS Use_This_PID
 FROM LINNS_PIDAANTAX pt
 LEFT JOIN LINNS_PIDRELATE pr ON pt.PID = pr.PID
+LEFT JOIN LND_parcel_polygon lpp_parent ON pr.PIDRELATE = lpp_parent.pid
 WHERE pt.AAN = 'xxxxxxxx';
 ```
 
