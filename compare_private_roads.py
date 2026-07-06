@@ -1,18 +1,27 @@
 """
-Compare private_roads() output ("_compare") against private_roads_fast() output
-("_compare_fast") to verify the single-pass overlay produces identical results.
+Compare private_roads()'s per-code output against private_roads_fast()'s combined
+output to verify the single-pass overlay produces identical results.
 
-The two sets of tables can live in different geodatabases/SDE connections -
-arcpy references tables by full path, so no linking between workspaces is
-needed (see alter_final_tables.py for the same cross-workspace pattern).
+private_roads() writes its final SAP_PrivRd_{code}_compare tables straight to
+sde_workspace, not to the local scratch geodatabase - so a local copy of that
+scratch gdb (e.g. scratch_1.gdb) only has the raw, per-code Local_{code}_Identity
+feature classes: one row per parcel/boundary overlay slice, not yet grouped by
+PID. This script aggregates those rows itself (group by PID, sum SHAPE_area,
+count rows) to reproduce what Frequency_analysis would have produced.
 
-Only rows where AREARATE_CODE is not null are compared: private_roads()'s
-per-code Identity keeps every citywide parcel, so its "_compare" tables also
-carry a large block of AREARATE_CODE IS NULL rows for parcels outside that one
-code's boundary. private_roads_fast() splits its combined result with
-TableSelect on AREARATE_CODE = '<code>', so its "_compare_fast" tables never
-have null rows. That difference is expected, not a bug - it isn't part of the
-comparison.
+private_roads_fast() writes its combined Frequency result to PrivRd_fast_Frequency
+in the local scratch geodatabase before splitting it into per-code SDE tables, so
+the "new" side is already aggregated - just filter that one table by AREARATE_CODE.
+
+The two geodatabases don't need to be related in any way - arcpy references
+tables by full path (see alter_final_tables.py for the same cross-workspace
+pattern), so comparing a table in one .gdb against a table in another is
+completely normal.
+
+Only rows where AREARATE_CODE matches the code being compared are included:
+private_roads()'s per-code Identity keeps every citywide parcel, tagging
+everything outside that one code's boundary with a null AREARATE_CODE. Those
+null rows aren't part of a meaningful comparison, so they're filtered out here.
 """
 
 import os
@@ -23,16 +32,34 @@ AREA_RATE_CODES = [f"R{str(i * 10).zfill(3)}" for i in range(22)]
 AREA_TOLERANCE = 0.01  # SHAPE_area difference (in the layer's area units) to treat as a match
 
 
-def load_compare_table(workspace, table_name):
-    """Read a SAP_PrivRd_*_compare(_fast) table into {PID: (FREQUENCY, SHAPE_area)}."""
+def load_old_identity_rows(workspace, area_rate_code):
+    """
+    Aggregate private_roads()'s raw Local_{code}_Identity feature class into
+    {PID: (count, summed_shape_area)}, reproducing what Frequency_analysis
+    would have produced from it.
+    """
 
-    table_path = os.path.join(workspace, table_name)
+    table_path = os.path.join(workspace, f"Local_{area_rate_code}_Identity")
+    where_clause = f"AREARATE_CODE = '{area_rate_code}'"
 
     rows = {}
-    with arcpy.da.SearchCursor(table_path, ["PID", "AREARATE_CODE", "FREQUENCY", "SHAPE_area"]) as cursor:
-        for pid, area_rate_code, frequency, shape_area in cursor:
-            if area_rate_code is None:
-                continue
+    with arcpy.da.SearchCursor(table_path, ["PID", "SHAPE_area"], where_clause) as cursor:
+        for pid, shape_area in cursor:
+            count, total_area = rows.get(pid, (0, 0.0))
+            rows[pid] = (count + 1, total_area + (shape_area or 0.0))
+
+    return rows
+
+
+def load_fast_frequency_rows(workspace, area_rate_code):
+    """Read private_roads_fast()'s already-aggregated PrivRd_fast_Frequency table."""
+
+    table_path = os.path.join(workspace, "PrivRd_fast_Frequency")
+    where_clause = f"AREARATE_CODE = '{area_rate_code}'"
+
+    rows = {}
+    with arcpy.da.SearchCursor(table_path, ["PID", "FREQUENCY", "SHAPE_area"], where_clause) as cursor:
+        for pid, frequency, shape_area in cursor:
             rows[pid] = (frequency, shape_area)
 
     return rows
@@ -41,8 +68,8 @@ def load_compare_table(workspace, table_name):
 def compare_area_rate_code(old_workspace, new_workspace, area_rate_code):
     """Compare one code's private_roads() output against private_roads_fast()'s."""
 
-    old_rows = load_compare_table(old_workspace, f"SAP_PrivRd_{area_rate_code}_compare")
-    new_rows = load_compare_table(new_workspace, f"SAP_PrivRd_{area_rate_code}_compare_fast")
+    old_rows = load_old_identity_rows(old_workspace, area_rate_code)
+    new_rows = load_fast_frequency_rows(new_workspace, area_rate_code)
 
     old_pids = set(old_rows)
     new_pids = set(new_rows)
@@ -84,10 +111,10 @@ def print_report(result):
     print(f"{code}: {status} (old={result['old_pid_count']} PIDs, fast={result['new_pid_count']} PIDs)")
 
     if result["missing_in_fast"]:
-        print(f"\tPIDs in _compare but missing from _compare_fast: {result['missing_in_fast']}")
+        print(f"\tPIDs in old Identity but missing from fast Frequency: {result['missing_in_fast']}")
 
     if result["missing_in_old"]:
-        print(f"\tPIDs in _compare_fast but missing from _compare: {result['missing_in_old']}")
+        print(f"\tPIDs in fast Frequency but missing from old Identity: {result['missing_in_old']}")
 
     if result["frequency_mismatches"]:
         print(f"\tFREQUENCY mismatches (PID, old, fast): {result['frequency_mismatches']}")
@@ -100,10 +127,13 @@ def print_report(result):
 
 if __name__ == "__main__":
 
-    # Point these at wherever the two runs' tables actually live - they don't
-    # need to be in the same geodatabase or SDE connection.
-    OLD_WORKSPACE = r"PATH_TO_COPIED_GEODATABASE_WITH_compare_TABLES"
-    NEW_WORKSPACE = r"E:\HRM\Scripts\SDE\SQL\Prod\prod_RW_sdeadm.sde"
+    # scratch_1.gdb - local workspace copied from the private_roads() run,
+    # holding the raw per-code Local_{code}_Identity feature classes.
+    OLD_WORKSPACE = r"PATH_TO_scratch_1.gdb"
+
+    # scratch.gdb - local workspace from the private_roads_fast() run, holding
+    # the combined, already-aggregated PrivRd_fast_Frequency table.
+    NEW_WORKSPACE = r"PATH_TO_scratch.gdb"
 
     any_mismatch = False
 
