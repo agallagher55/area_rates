@@ -57,44 +57,40 @@ YEAR = datetime.now().year
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "area_rates.ini")
 
+_config = configparser.RawConfigParser()
+_config.read(CONFIG_PATH)
 
-def load_area_rate_features(config_path=CONFIG_PATH):
-    """Read area rate feature names from configuration file."""
+# Area rate feature names to process, read once from area_rates.ini.
+AREA_RATE_FEATURES = sorted([
+    line.strip()
+    for line in _config.get("AreaRates", "features", fallback="").splitlines()
+    if line.strip()
+])
 
-    config = configparser.ConfigParser()
-    config.read(config_path)
-
-    features_lines = config.get("AreaRates", "features", fallback="")
-    features = sorted([line.strip() for line in features_lines.splitlines() if line.strip()])
-
-    return features
-
-
-def load_parcel_source(config_path=CONFIG_PATH):
-    """Read the recorded, dated parcel snapshot path from the configuration file, if any."""
-
-    config = configparser.RawConfigParser()
-    config.read(config_path)
-
-    return config.get("Parcels", "export_path", fallback="").strip()
+# Dated parcel snapshot recorded from a previous run, if any (see get_parcels()).
+PARCEL_EXPORT_PATH = _config.get("Parcels", "export_path", fallback="").strip()
 
 
-def save_parcel_source(export_path, config_path=CONFIG_PATH):
-    """Record the dated parcel snapshot path so future runs reuse the same snapshot."""
+def save_parcel_export_path(export_path):
+    """Record the dated parcel snapshot path in area_rates.ini so future runs reuse it."""
+
+    global PARCEL_EXPORT_PATH
 
     config = configparser.RawConfigParser()
-    config.read(config_path)
+    config.read(CONFIG_PATH)
 
     if not config.has_section("Parcels"):
         config.add_section("Parcels")
 
     config.set("Parcels", "export_path", export_path)
 
-    with open(config_path, "w") as config_file:
+    with open(CONFIG_PATH, "w") as config_file:
         config.write(config_file)
 
+    PARCEL_EXPORT_PATH = export_path
 
-def get_parcels(local_workspace, config_path=CONFIG_PATH):
+
+def get_parcels(local_workspace):
     """
     Return the dated parcel snapshot used for this season's area rate process.
 
@@ -106,15 +102,12 @@ def get_parcels(local_workspace, config_path=CONFIG_PATH):
     reuses the recorded snapshot instead of re-exporting from the live source.
 
     :param local_workspace: workspace to export the dated parcel snapshot into
-    :param config_path: path to the .ini file that records the snapshot location
     :return: path to the dated parcel snapshot feature class
     """
 
-    existing_export_path = load_parcel_source(config_path)
-
-    if existing_export_path and arcpy.Exists(existing_export_path):
-        logger.info(f"Using previously exported parcels: {existing_export_path}")
-        return existing_export_path
+    if PARCEL_EXPORT_PATH and arcpy.Exists(PARCEL_EXPORT_PATH):
+        logger.info(f"Using previously exported parcels: {PARCEL_EXPORT_PATH}")
+        return PARCEL_EXPORT_PATH
 
     export_name = f"Parcel_{datetime.now():%Y%m%d}"
 
@@ -125,8 +118,8 @@ def get_parcels(local_workspace, config_path=CONFIG_PATH):
         out_name=export_name,
     )[0]
 
-    save_parcel_source(export_path, config_path)
-    logger.info(f"Recorded parcel snapshot path in {config_path}: {export_path}")
+    save_parcel_export_path(export_path)
+    logger.info(f"Recorded parcel snapshot path in {CONFIG_PATH}: {export_path}")
 
     return export_path
 
@@ -263,8 +256,7 @@ def archive_data(archive_folder, sde_workspace, parcel_polygons=None):
 
 if __name__ == "__main__":
 
-    # Read area rate feature list from configuration
-    area_rate_features = load_area_rate_features()
+    area_rate_features = AREA_RATE_FEATURES
     # area_rate_features = ["LND_area_rate_transit", ]
 
     local_workspace = create_fgdb(out_folder_path=os.getcwd())
