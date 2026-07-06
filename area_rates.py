@@ -221,6 +221,59 @@ def private_roads(sde_workspace, output_workspace, parcel_polygons):
             )
 
 
+def private_roads_fast(sde_workspace, output_workspace, parcel_polygons):
+    """
+    Test/candidate replacement for private_roads().
+
+    private_roads() re-runs Identity_analysis against the *entire* parcel fabric
+    once per Area Rate code (22 times), even though a single Identity against the
+    whole LND_area_rate_Priv_Road feature class (all codes at once) - the same
+    approach boundary_parcels() uses for every other area rate type - produces the
+    same per-parcel/per-code assignments in one pass. This version does the Identity
+    and Frequency once, then splits the small resulting summary table into the same
+    per-code tables private_roads() produces (suffixed "_fast" so both can be
+    diffed directly) using cheap non-spatial TableSelect calls instead of repeating
+    the expensive spatial overlay 22 times.
+
+    Not wired into __main__ yet - run it alongside private_roads() and compare the
+    "_compare" vs "_compare_fast" tables (row counts, SHAPE_area sums per PID/code)
+    before switching the pipeline over.
+    """
+    logger.info(f"Private Roads Area Rate analysis (fast)...")
+
+    sde_private_roads_ar_boundary = os.path.join(sde_workspace, "SDEADM.LND_area_rate_Priv_Road")
+
+    with arcpy.EnvManager(workspace=r"C:\Workspace\Area_Rate_Overlay\Area_Rate.gdb"):
+
+        logger.info("\tRunning Identity analysis (all Area Rate codes in a single pass)...")
+        identity_feature = arcpy.Identity_analysis(
+            in_features=parcel_polygons,
+            identity_features=sde_private_roads_ar_boundary,
+            out_feature_class=os.path.join(output_workspace, "PrivRd_fast_Identity"),
+            join_attributes="ALL",
+            cluster_tolerance="",
+            relationship="NO_RELATIONSHIPS"
+        )[0]
+
+        logger.info("\tRunning Frequency analysis (all Area Rate codes in a single pass)...")
+        frequency_table = arcpy.analysis.Frequency(
+            in_table=identity_feature,
+            out_table=os.path.join(output_workspace, "PrivRd_fast_Frequency"),
+            frequency_fields=["PID", "AREARATE_CODE"],
+            summary_fields=["SHAPE_area"]
+        ).getOutput(0)
+
+        for i in range(22):
+            area_rate_code = f"R{str(i * 10).zfill(3)}"
+
+            logger.info(f"\tSplitting out {area_rate_code}...")
+            arcpy.analysis.TableSelect(
+                in_table=frequency_table,
+                out_table=os.path.join(sde_workspace, f"SAP_PrivRd_{area_rate_code}_compare_fast"),
+                where_clause=f"AREARATE_CODE = '{area_rate_code}'"
+            )
+
+
 def archive_data(archive_folder, sde_workspace, parcel_polygons=None):
     logger.info("Archiving data...")
 
@@ -286,6 +339,10 @@ if __name__ == "__main__":
 
                 if feature_name == "LND_area_rate_Priv_Road":
                     private_roads(sde_workspace, local_workspace, parcel_polygons)
+
+                    # Test run: compare SAP_PrivRd_{code}_compare against
+                    # SAP_PrivRd_{code}_compare_fast before switching over to this.
+                    # private_roads_fast(sde_workspace, local_workspace, parcel_polygons)
 
                 elif feature_name == "LND_area_rate_transit":
                     feature = arcpy.Select_analysis(
