@@ -13,6 +13,8 @@ As a result, during this year's processing, the spatial query finds the old parc
 
 This is a transient issue — once the Province updates the parcel fabric to reflect the new boundaries, these AANs will reappear in subsequent reports under their new PIDs. Alternatively, we could take a snapshot of the LINNS tables and then wait a couple months before using the parcel fabric. In summary, this is a consequence of the two provincial datasets being out of sync during property reconsolidations.
 
+**Note:** this is unrelated to the parcel snapshot described in Issue #3 below, and that snapshot doesn't fix it — if anything, it removes the self-healing described above. Before the snapshot existed, `boundary_parcels()` read the live parcel fabric on every run, so a later run in the same season would automatically pick up the Province's fabric update once it landed. Now that the parcel fabric is frozen for the season, a later run keeps reusing whatever was live at export time, even after the Province catches the fabric up — the fix only takes effect once someone clears `export_path` and a fresh snapshot is exported (currently framed as a new-season action, not a mid-season one).
+
 ### Visuals
 
 - The current parcel fabric, updated in February, for the parcels of interest, are in dotted black lines.
@@ -40,6 +42,8 @@ To keep every table in a season's run built from an identical set of parcels:
 - The dated snapshot is also copied into the run's final archive geodatabase (`archive_data()`), so the exact parcels behind a season's results are preserved alongside the final tables.
 
 **To start a new season**, clear `export_path` in `area_rates.ini` (leave it blank) so the next run exports a fresh dated snapshot and records the new path.
+
+This freeze is about consistency across a season's run — every `SAP_*` table is guaranteed to be built from the identical set of parcels. It does **not** address Issue #1's provincial timing gap, and it removes that issue's previous self-healing behavior within a season (see the note in Issue #1).
 
 ## 4. Tiny SHAPE_area Noise in Private Roads Results
 
