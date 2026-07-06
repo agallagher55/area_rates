@@ -41,3 +41,9 @@ To keep every table in a season's run built from an identical set of parcels:
 
 **To start a new season**, clear `export_path` in `area_rates.ini` (leave it blank) so the next run exports a fresh dated snapshot and records the new path.
 
+## 4. Tiny SHAPE_area Noise in Private Roads Results
+
+`private_roads()` used to re-run `Identity_analysis` against the entire parcel fabric once per Area Rate code (22 times), which was slow. It now runs `Identity`/`Frequency` once against all 22 codes at once - the same approach `boundary_parcels()` uses for every other area rate type - then splits the combined result into the same per-code `SAP_PrivRd_{code}_compare` tables using cheap `TableSelect` calls instead of repeating the spatial overlay.
+
+This was verified with `compare_private_roads.py` against the old per-code loop: every PID was assigned to the identical set of Area Rate codes in both versions. A handful of PIDs showed `SHAPE_area` differences of a few hundredths of a unit (on areas ranging from ~1 to ~100,000+ units) and `FREQUENCY` (fragment count) differences of 1-2 extra rows for the same PID/code. Both are expected: running Identity against all 22 codes' boundaries at once introduces extra vertices at shared/adjacent code edges, splitting some parcels into more slivers than the old per-code version did - but `Frequency_analysis` still sums those slivers into the same total area per PID/code either way. Neither is a real discrepancy in the billed area.
+

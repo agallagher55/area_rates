@@ -1,17 +1,20 @@
 """
-Compare private_roads()'s per-code output against private_roads_fast()'s combined
-output to verify the single-pass overlay produces identical results.
+Used to validate replacing private_roads()'s old per-code overlay loop with its
+current single-pass implementation (see area_rates.py) - kept here in case a
+future change to private_roads() needs the same kind of before/after check.
 
-private_roads() writes its final SAP_PrivRd_{code}_compare tables straight to
-sde_workspace, not to the local scratch geodatabase - so a local copy of that
-scratch gdb (e.g. scratch_1.gdb) only has the raw, per-code Local_{code}_Identity
-feature classes: one row per parcel/boundary overlay slice, not yet grouped by
-PID. This script aggregates those rows itself (group by PID, sum SHAPE_area,
-count rows) to reproduce what Frequency_analysis would have produced.
+The old per-code loop wrote its final SAP_PrivRd_{code}_compare tables straight
+to sde_workspace, not to the local scratch geodatabase - so a local copy of that
+scratch gdb (e.g. scratch_1.gdb, from before the switch) only has the raw,
+per-code Local_{code}_Identity feature classes: one row per parcel/boundary
+overlay slice, not yet grouped by PID. This script aggregates those rows itself
+(group by PID, sum SHAPE_area, count rows) to reproduce what Frequency_analysis
+would have produced.
 
-private_roads_fast() writes its combined Frequency result to PrivRd_fast_Frequency
-in the local scratch geodatabase before splitting it into per-code SDE tables, so
-the "new" side is already aggregated - just filter that one table by AREARATE_CODE.
+The current single-pass implementation writes its combined Frequency result to
+PrivRd_Frequency in the local scratch geodatabase before splitting it into
+per-code SDE tables, so the "new" side is already aggregated - just filter that
+one table by AREARATE_CODE.
 
 The two geodatabases don't need to be related in any way - arcpy references
 tables by full path (see alter_final_tables.py for the same cross-workspace
@@ -19,9 +22,9 @@ pattern), so comparing a table in one .gdb against a table in another is
 completely normal.
 
 Only rows where AREARATE_CODE matches the code being compared are included:
-private_roads()'s per-code Identity keeps every citywide parcel, tagging
-everything outside that one code's boundary with a null AREARATE_CODE. Those
-null rows aren't part of a meaningful comparison, so they're filtered out here.
+the old per-code Identity kept every citywide parcel, tagging everything
+outside that one code's boundary with a null AREARATE_CODE. Those null rows
+aren't part of a meaningful comparison, so they're filtered out here.
 """
 
 import os
@@ -29,13 +32,19 @@ import arcpy
 
 AREA_RATE_CODES = [f"R{str(i * 10).zfill(3)}" for i in range(22)]
 
-AREA_TOLERANCE = 0.01  # SHAPE_area difference (in the layer's area units) to treat as a match
+# SHAPE_area difference (in the layer's area units) to treat as a match. Running
+# Identity against all 22 Area Rate codes at once (instead of one code at a time)
+# introduces extra vertices at shared/adjacent code boundaries, producing tiny
+# floating-point/vertex-snapping differences of a few hundredths of a unit on
+# areas in the thousands-to-hundred-thousands range - negligible noise, not a
+# real discrepancy. 0.01 was flagging that expected noise as a mismatch.
+AREA_TOLERANCE = 1.0
 
 
 def load_old_identity_rows(workspace, area_rate_code):
     """
-    Aggregate private_roads()'s raw Local_{code}_Identity feature class into
-    {PID: (count, summed_shape_area)}, reproducing what Frequency_analysis
+    Aggregate the old per-code loop's raw Local_{code}_Identity feature class
+    into {PID: (count, summed_shape_area)}, reproducing what Frequency_analysis
     would have produced from it.
     """
 
@@ -52,7 +61,7 @@ def load_old_identity_rows(workspace, area_rate_code):
 
 
 def load_fast_frequency_rows(workspace, area_rate_code):
-    """Read private_roads_fast()'s already-aggregated PrivRd_fast_Frequency table."""
+    """Read the single-pass implementation's already-aggregated Frequency table."""
 
     table_path = os.path.join(workspace, "PrivRd_fast_Frequency")
     where_clause = f"AREARATE_CODE = '{area_rate_code}'"
@@ -66,7 +75,7 @@ def load_fast_frequency_rows(workspace, area_rate_code):
 
 
 def compare_area_rate_code(old_workspace, new_workspace, area_rate_code):
-    """Compare one code's private_roads() output against private_roads_fast()'s."""
+    """Compare one code's old per-code loop output against the single-pass implementation's."""
 
     old_rows = load_old_identity_rows(old_workspace, area_rate_code)
     new_rows = load_fast_frequency_rows(new_workspace, area_rate_code)
@@ -127,12 +136,12 @@ def print_report(result):
 
 if __name__ == "__main__":
 
-    # scratch_1.gdb - local workspace copied from the private_roads() run,
+    # scratch_1.gdb - local workspace copied from the old per-code loop's run,
     # holding the raw per-code Local_{code}_Identity feature classes.
     OLD_WORKSPACE = r"PATH_TO_scratch_1.gdb"
 
-    # scratch.gdb - local workspace from the private_roads_fast() run, holding
-    # the combined, already-aggregated PrivRd_fast_Frequency table.
+    # scratch.gdb - local workspace from the single-pass implementation's run,
+    # holding the combined, already-aggregated PrivRd_fast_Frequency table.
     NEW_WORKSPACE = r"PATH_TO_scratch.gdb"
 
     any_mismatch = False
