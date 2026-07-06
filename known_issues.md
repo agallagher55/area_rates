@@ -28,4 +28,16 @@ One of the area rate boundary feature classes likely contains overlapping polygo
 
 This can result in a property being assigned to the wrong area rate or missing from a rate it should belong to.
 
+## 3. Parcel Fabric Is Frozen Per Season
+
+Because the parcel fabric is live and can be edited by the Province at any time (see Issue #1 above), and because `area_rates.py` runs the same overlay analysis across many area rate feature classes over an extended period, using the live parcel fabric directly would risk each area rate table (`SAP_*`) being built against slightly different parcels.
+
+To keep every table in a season's run built from an identical set of parcels:
+
+- The first time `area_rates.py` runs for a season, it exports the live parcel fabric (`SDEADM.LND_parcels/SDEADM.LND_parcel_polygon`) once to a dated feature class (e.g. `Parcel_20260706`) in the run's local scratch geodatabase, via `get_parcels()`.
+- The path to that dated export is recorded in `area_rates.ini` under `[Parcels] export_path`.
+- Every subsequent run reads `export_path` from the config and reuses that exact snapshot instead of re-exporting from the live source, so results stay reproducible for the rest of the season.
+- The dated snapshot is also copied into the run's final archive geodatabase (`archive_data()`), so the exact parcels behind a season's results are preserved alongside the final tables.
+
+**To start a new season**, clear `export_path` in `area_rates.ini` (leave it blank) so the next run exports a fresh dated snapshot and records the new path.
 
