@@ -9,9 +9,12 @@ area_rates.py
 
 SQL
     - Run SQL scripts
-    - T:\work\giss\tools\Area_Rates
-    - T:\work\giss\tools\Area_Rates\v2023_winter - SAP\SQL Server
-        - Make a copy of the previous year and make that the current year.
+    - prepare_sql_scripts.py
+        - Update YEAR and SEASON at the top, then run to copy this repo's SQL folder to
+          T:\work\giss\tools\Area_Rates\v{YEAR}_{SEASON} - SAP\SQL Server
+        - This copy step may not be needed if we start running the scripts directly from
+          the local repo folder instead of T: - keeping it for now.
+    - T:\work\giss\tools\Area_Rates\v{YEAR}_{SEASON} - SAP\SQL Server
         - Run 'Run_xxx.sql' files except for private roads. Private road sql files need to be individually run.
 
     Completed: (DEV)
