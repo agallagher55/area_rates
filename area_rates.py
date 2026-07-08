@@ -257,7 +257,6 @@ def archive_data(archive_folder, sde_workspace, parcel_polygons=None):
 if __name__ == "__main__":
 
     area_rate_features = AREA_RATE_FEATURES
-    # area_rate_features = ["LND_area_rate_transit", ]
 
     local_workspace = create_fgdb(out_folder_path=os.getcwd())
     # local_workspace = r"T:\work\giss\monthly\202508aug\gallaga\area_rates\scratch.gdb"
@@ -267,8 +266,8 @@ if __name__ == "__main__":
     parcel_polygons = get_parcels(local_workspace)
 
     for sde_workspace in [
-        # r"E:\HRM\Scripts\SDE\SQL\qa_RW_sdeadm.sde",
-        r"E:\HRM\Scripts\SDE\SQL\Prod\prod_RW_sdeadm.sde"
+        r"E:\HRM\Scripts\SDE\SQL\qa_RW_sdeadm.sde",
+        # r"E:\HRM\Scripts\SDE\SQL\Prod\prod_RW_sdeadm.sde"
     ]:
         logger.info(f"{datetime.now()}")
 
@@ -291,8 +290,7 @@ if __name__ == "__main__":
                     feature = arcpy.Select_analysis(
                         in_features=feature_name,
                         out_feature_class=os.path.join(local_workspace, feature_name),
-                        # where_clause=f"DESCRIP LIKE '{YEAR} Local Transit'"
-                        where_clause = f"DESCRIP LIKE '2025 Local Transit'"
+                        where_clause=f"DESCRIP LIKE '{YEAR} Local Transit'"
                     )[0]
 
                     # TODO: Make sure this is a valid year -- make sure a boundary is selected
