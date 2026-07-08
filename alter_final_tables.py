@@ -33,7 +33,7 @@ def update_sde_aggregate_table(sde_workspace, final_tax_tables):
 
     # Append table data from each table
     for table in final_tax_tables:
-        add_to_feature(table, aggregate_final_table, tax_year=2025)
+        add_to_feature(table, aggregate_final_table, tax_year=2026)
 
     return aggregate_final_table
 
@@ -63,10 +63,8 @@ if __name__ == "__main__":
 
     DEV_GDB = r"\\msfs06\GISApp\AGS_Dev\fgdbs\web_RO.gdb"
 
-    # QA_GDB = r"\\msfs06\GISApp\AGS_QA\fgdbs\web_RO.gdb"
     QA_GDB = r"\\msfs06\GISApp\\QA\Data\FileGDBs\web_RO.gdb"
 
-    # PROD_GDB = r"\\msfs06\GISApp\AGS_Prod\fgdbs\web_RO.gdb"
     PROD_GDB = r"\\msfs06\GISApp\PROD\Data\FileGDBs\web_RO.gdb"
 
     DEV_SDE = r"E:\HRM\Scripts\SDE\SQL\dev_RW_sdeadm.sde"
@@ -76,7 +74,7 @@ if __name__ == "__main__":
     for sde_workspace, gdb_service_workspace in [
         # (DEV_SDE, DEV_GDB),
         (QA_SDE, QA_GDB),
-        (PROD_SDE, PROD_GDB),
+        # (PROD_SDE, PROD_GDB),
     ]:
 
         print(datetime.now())
