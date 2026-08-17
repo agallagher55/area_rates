@@ -21,13 +21,13 @@
 --         GIS call's overlay output (SAP_TRANSIT -> AR_TRANSIT_pid_SAP ->
 --         AR_TRANSIT_AAN_SAP / AR_TRANSIT_CONDO_AAN_SAP -> AR_TRANSIT_FINAL_SAP).
 --         This is the pre-prod run's result.
---   OLD = SDEADM.Area_Rates_PID_AAN, scoped to the transit code domain
+--   OLD = SDEADM.Area_Rates_PID_AAN, filtered to AREARATE_CODE = 'M060'
 --         Area_Rates_PID_AAN is the aggregate table alter_final_tables.py
 --         loads from every *_FINAL_SAP table (PID, AAN, AREARATE_CODE) - it
 --         doesn't tag which area rate type a row came from, so this report
---         scopes it to whatever ARCODE values the fresh AR_TRANSIT_FINAL_SAP
---         uses (the local transit rate code domain is a small fixed set of
---         zone codes, not per-PID, so it should be stable run over run).
+--         filters it to M060, the Local Area Transit Rate code (see
+--         AREA_RATE_CODES.md). Don't confuse with M070 (Regional Transit,
+--         deprecated) - a different code/boundary entirely.
 --
 --   !! ASSUMPTION TO VERIFY BEFORE TRUSTING THIS REPORT !!
 --   Area_Rates_PID_AAN only holds the prior committed transit state if
@@ -37,10 +37,6 @@
 --   sanity check at the bottom flags that case - if New_Row_Count and
 --   Old_Row_Count come back (nearly) identical, that's likely what happened.
 -- ============================================================================
-
-DECLARE @TransitCodes TABLE (ARCODE VARCHAR(4));
-INSERT INTO @TransitCodes
-SELECT DISTINCT ARCODE FROM SDEADM.AR_TRANSIT_FINAL_SAP;
 
 PRINT '============================================================================';
 PRINT 'Local Area Transit Rate differences: pre-prod (QA) run vs. last committed state';
@@ -53,7 +49,7 @@ WITH New_Transit AS (
 Old_Transit AS (
     SELECT AAN AS ACCTNO, PID, AREARATE_CODE AS ARCODE
     FROM SDEADM.Area_Rates_PID_AAN
-    WHERE AREARATE_CODE IN (SELECT ARCODE FROM @TransitCodes)
+    WHERE AREARATE_CODE = 'M060'
 )
 SELECT
     COALESCE(n.ACCTNO, o.ACCTNO) AS ACCTNO,
@@ -86,4 +82,4 @@ SELECT
     (SELECT COUNT(*) FROM SDEADM.AR_TRANSIT_FINAL_SAP) AS New_Row_Count,
     (SELECT COUNT(*)
      FROM SDEADM.Area_Rates_PID_AAN
-     WHERE AREARATE_CODE IN (SELECT ARCODE FROM @TransitCodes)) AS Old_Row_Count;
+     WHERE AREARATE_CODE = 'M060') AS Old_Row_Count;
