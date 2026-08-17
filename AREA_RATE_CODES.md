@@ -27,10 +27,9 @@ its strikethrough/color annotations.
 ## Key takeaway for the transit rate report
 
 **Local Area Transit Rate = code `M060`**, boundary `LND_area_rate_transit`. This is the
-code to filter `Area_Rates_PID_AAN.AREARATE_CODE` on directly - no need to derive the
-transit code domain dynamically from `AR_TRANSIT_FINAL_SAP` (as
-`analysis_transit_rate_differences.sql` currently does). `M070` (Regional Transit) is a
-separate, deprecated code/boundary - don't confuse the two.
+code to filter `Area_Rates_PID_AAN.AREARATE_CODE` on directly - see
+`local_transit_rate_listing.sql`. `M070` (Regional Transit) is a separate, deprecated
+code/boundary - don't confuse the two.
 
 ## Reading the annotations
 
